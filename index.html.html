@@ -1,0 +1,1764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NSB Games Music Bingo</title>
+    <!-- Google Fonts - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React and ReactDOM CDNs -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel CDN for JSX transformation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        /* Custom scrollbar styles for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #2d3748; /* Darker gray for track */
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4a5568; /* Medium gray for thumb */
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #63708a; /* Lighter gray on hover */
+        }
+
+        /* Ensure smooth transitions for all elements */
+        * {
+            transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, opacity 0.3s ease;
+        }
+
+        /* Print-specific styles for bingo cards (base styles, @page will be dynamic) */
+        @media print {
+            body {
+                font-family: 'Inter', sans-serif; /* Ensure font is consistent for print */
+                background-color: #fff; /* White background for print */
+                margin: 0;
+                padding: 0;
+                display: block;
+                width: 100vw;
+                height: 100vh;
+            }
+            .page-wrapper {
+                display: flex;
+                box-sizing: border-box;
+                page-break-after: always;
+            }
+            .page-wrapper:last-of-type {
+                page-break-after: auto;
+            }
+            .bingo-card-container {
+                border: 1px solid #000; /* Black border for print */
+                border-radius: 8px; /* Rounded corners for print */
+                padding: 5mm; /* Padding inside the card for print */
+                box-sizing: border-box;
+                page-break-inside: avoid; /* Avoid breaking cards across pages */
+                box-shadow: none; /* No shadow for print */
+                margin: 0;
+                flex-shrink: 0; /* Prevent cards from shrinking */
+                display: flex;
+                flex-direction: column;
+                color: #000; /* Ensure text is black for print */
+                background-color: #fff; /* Ensure background is white for print */
+            }
+            /* Ensure SVG text is black for print */
+            .nsb-print-text { fill: black !important; }
+            .nsb-print-dot { fill: black !important; }
+        }
+    </style>
+</head>
+<body class="bg-gray-900">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // NSB Games Graphical Logo Component (the circle part)
+        // This component renders only the circular graphic of the NSB Games logo.
+        // It uses a gradient fill for visual appeal and accepts a className for Tailwind styling.
+        const NsbLogoGraphic = ({ className = '' }) => (
+            <svg className={`inline-block ${className}`} width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="nsbCircleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#60a5fa" /> {/* Tailwind blue-400 */}
+                        <stop offset="100%" stopColor="#a855f7" /> {/* Tailwind purple-500 */}
+                    </linearGradient>
+                </defs>
+                <circle cx="15" cy="15" r="12" fill="url(#nsbCircleGradient)"/>
+            </svg>
+        );
+
+        // NSB Games Graphical Logo for Print (black circle)
+        // This component renders a black circular graphic for the NSB Games logo,
+        // specifically for use in printed bingo cards to ensure visibility.
+        const NsbLogoGraphicForPrint = () => (
+            <svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="15" cy="15" r="12" fill="black"/> {/* Solid black for print */}
+            </svg>
+        );
+
+        // --- Second Screen Display Component ---
+        // This component is rendered into a new window using a React portal.
+        // It displays the current song, a countdown, and a history of played songs.
+        function SecondScreenDisplay({ currentSongName, playedSongsList, isPlayingMain, checkedCard, winningCells }) {
+            const playedSongsListRef = React.useRef(null);
+            const currentSongDisplayTimeoutRef = React.useRef(null);
+            const [displayedCurrentSong, setDisplayedCurrentSong] = React.useState('---');
+            const [countdown, setCountdown] = React.useState(null); // State for countdown timer
+            const countdownIntervalRef = React.useRef(null); // Ref for countdown interval
+            const scrollAnimationRef = React.useRef(null); // Ref for continuous scroll animation frame
+
+            // Effect to handle the 15-second delay and countdown for current song display
+            React.useEffect(() => {
+                // Clear any existing timeouts/intervals to prevent conflicts
+                clearTimeout(currentSongDisplayTimeoutRef.current);
+                clearInterval(countdownIntervalRef.current);
+                setCountdown(null); // Reset countdown state
+
+                if (isPlayingMain && currentSongName) {
+                    setCountdown(15); // Start countdown from 15 seconds
+
+                    // Start countdown interval to update the display every second
+                    countdownIntervalRef.current = setInterval(() => {
+                        setCountdown(prev => {
+                            if (prev <= 1) {
+                                clearInterval(countdownIntervalRef.current); // Stop interval when countdown reaches 0
+                                return 0;
+                            }
+                            return prev - 1; // Decrement countdown
+                        });
+                    }, 1000);
+
+                    // Set a timeout to display the actual song name after 15 seconds
+                    currentSongDisplayTimeoutRef.current = setTimeout(() => {
+                        setDisplayedCurrentSong(currentSongName);
+                        setCountdown(0); // Ensure countdown is 0 when song name is displayed
+                    }, 15000); // 15 seconds delay
+                } else {
+                    setDisplayedCurrentSong('---'); // Clear song display if not playing or no song
+                    setCountdown(null); // Hide countdown
+                }
+
+                // Cleanup function: clear timeouts and intervals when component unmounts or dependencies change
+                return () => {
+                    clearTimeout(currentSongDisplayTimeoutRef.current);
+                    clearInterval(countdownIntervalRef.current);
+                };
+            }, [currentSongName, isPlayingMain]); // Re-run effect when currentSongName or isPlayingMain changes
+
+            // Effect for continuous scrolling of played songs list
+            React.useEffect(() => {
+                const listElement = playedSongsListRef.current;
+                if (!listElement) return;
+
+                let lastTimestamp;
+
+                const startScrolling = () => {
+                    if (scrollAnimationRef.current) {
+                        cancelAnimationFrame(scrollAnimationRef.current);
+                    }
+
+                    // Check if content overflows. If not, don't scroll.
+                    // Add a small delay to allow DOM to update after playedSongsList changes
+                    setTimeout(() => {
+                        if (listElement.scrollHeight <= listElement.clientHeight) {
+                            listElement.scrollTop = 0; // Ensure it's at the top if not overflowing
+                            return;
+                        }
+
+                        const scrollSpeedPerSecond = 20; // Pixels per second
+                        const animateScroll = (timestamp) => {
+                            if (!lastTimestamp) {
+                                lastTimestamp = timestamp;
+                            }
+                            const deltaTime = (timestamp - lastTimestamp) / 1000; // Delta time in seconds
+                            lastTimestamp = timestamp;
+
+                            listElement.scrollTop += scrollSpeedPerSecond * deltaTime;
+
+                            // If scrolled past the first half of the duplicated content, reset to the beginning of the first half
+                            if (listElement.scrollTop >= listElement.scrollHeight / 2) {
+                                listElement.scrollTop = 0;
+                            }
+                            scrollAnimationRef.current = requestAnimationFrame(animateScroll);
+                        };
+                        scrollAnimationRef.current = requestAnimationFrame(animateScroll);
+                    }, 100); // Small delay to ensure DOM is ready for scrollHeight calculation
+                };
+
+                startScrolling(); // Call it initially and whenever playedSongsList changes
+
+                // Cleanup: clear animation frame when component unmounts or dependencies change
+                return () => {
+                    if (scrollAnimationRef.current) {
+                        cancelAnimationFrame(scrollAnimationRef.current);
+                    }
+                };
+            }, [playedSongsList]); // Re-run effect when playedSongsList changes
+
+            return (
+                <div style={{
+                    fontFamily: 'Inter, sans-serif',
+                    padding: '20px',
+                    backgroundColor: '#1a202c',
+                    color: '#e2e8f0',
+                    minHeight: '100vh',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    boxSizing: 'border-box' // Ensure padding is included in total size
+                }}>
+                    <h1>NSB Games - Live Display</h1>
+                    <div style={{
+                        backgroundColor: '#2d3748',
+                        padding: '1.5rem',
+                        borderRadius: '0.75rem',
+                        marginBottom: '2rem',
+                        width: '90%',
+                        maxWidth: '600px',
+                        textAlign: 'center',
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                    }}>
+                        <div style={{
+                            fontSize: '1.2rem',
+                            color: '#cbd5e0',
+                            marginBottom: '0.5rem'
+                        }}>CURRENT SONG</div>
+                        <div style={{
+                            fontSize: '2rem',
+                            fontWeight: 'bold',
+                            color: '#a7f3d0', /* Light green */
+                            minHeight: '2.5rem' /* Ensure consistent height */
+                        }}>
+                            {countdown !== null && countdown > 0 ? `${countdown}` : displayedCurrentSong}
+                        </div>
+                    </div>
+                    <div style={{
+                        backgroundColor: '#2d3748',
+                        padding: '1.5rem',
+                        borderRadius: '0.75rem',
+                        width: '90%',
+                        maxWidth: '600px',
+                        flexGrow: '1', /* Allow it to take available height */
+                        display: 'flex',
+                        flexDirection: 'column',
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                    }}>
+                        <h2 style={{
+                            fontSize: '1.8rem',
+                            fontWeight: 'bold',
+                            color: '#90cdf4',
+                            marginBottom: '1rem',
+                            textAlign: 'center'
+                        }}>Played Songs History</h2>
+                        <div ref={playedSongsListRef} style={{
+                            flexGrow: '1',
+                            overflowY: 'hidden', /* Hide default scrollbar, we're doing custom scrolling */
+                            paddingRight: '10px', /* Space for scrollbar */
+                            minHeight: '100px', /* Ensure it has some height to scroll */
+                            height: '100%', /* Ensure it takes full height for scrolling */
+                        }}>
+                            {/* Duplicate the list items for seamless scrolling */}
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', /* Responsive grid */
+                                gap: '1rem',
+                            }}>
+                                {playedSongsList.length > 0 ? (
+                                    [...playedSongsList, ...playedSongsList].map((songName, index) => (
+                                        <div key={`${songName}-${index}`} style={{ // Ensure unique keys for duplicated items
+                                            backgroundColor: '#4a5568',
+                                            padding: '0.75rem',
+                                            borderRadius: '0.5rem',
+                                            fontSize: '1rem',
+                                            fontWeight: '600',
+                                            color: '#e2e8f0',
+                                            textAlign: 'center'
+                                        }}>
+                                            {songName}
+                                        </div>
+                                    ))
+                                ) : (
+                                    <p style={{
+                                        textAlign: 'center',
+                                        fontSize: '1.2rem',
+                                        color: '#a0aec0'
+                                    }}>No songs played yet.</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Display for Checked Card on Second Screen */}
+                    {checkedCard && (
+                        <div style={{
+                            backgroundColor: '#2d3748',
+                            padding: '1.5rem',
+                            borderRadius: '0.75rem',
+                            width: '90%',
+                            maxWidth: '600px',
+                            marginTop: '2rem',
+                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                        }}>
+                            <h3 style={{
+                                fontSize: '1.8rem',
+                                fontWeight: 'bold',
+                                color: '#a7f3d0',
+                                marginBottom: '1rem',
+                                textAlign: 'center'
+                            }}>Checked Card # {checkedCard.cardNumber}</h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '2px' }}>
+                                {checkedCard.songs.map((song, index) => (
+                                    <div
+                                        key={index}
+                                        style={{
+                                            border: '1px solid #ccc',
+                                            display: 'flex',
+                                            justifyContent: 'center',
+                                            alignItems: 'center',
+                                            textAlign: 'center',
+                                            padding: '4px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 'bold',
+                                            wordBreak: 'break-word',
+                                            minHeight: '60px',
+                                            backgroundColor: winningCells && winningCells.includes(index) ? '#10B981' : (playedSongsList.includes(song) ? '#4A5568' : '#F8FAFC'),
+                                            color: winningCells && winningCells.includes(index) ? '#fff' : (playedSongsList.includes(song) ? '#e2e8f0' : '#000'),
+                                        }}
+                                    >
+                                        {song}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    <div style={{
+                        textAlign: 'center',
+                        marginTop: '40px',
+                        fontSize: '0.9rem',
+                        color: '#a0aec0'
+                    }}>
+                        <p>Powered by NSB Games</p>
+                        <p><a href="https://nsbgames.com/#home" target="_blank" style={{ color: '#63b3ed', textDecoration: 'none' }}>https://nsbgames.com/#home</a></p>
+                    </div>
+                </div>
+            );
+        }
+
+        // Main App component for the NSB Games Music Bingo application
+        function App() {
+            // State to store the list of audio files loaded by the user
+            const [audioFiles, setAudioFiles] = React.useState([]);
+            // State to store the current audio file being played
+            const [currentSong, setCurrentSong] = React.useState(null);
+            // State to store the list of songs that have already been played
+            const [playedSongs, setPlayedSongs] = React.useState([]);
+            // State to manage the playback status (playing, paused, stopped)
+            const [isPlaying, setIsPlaying] = React.useState(false);
+            // State to manage if the app is in automatic playback mode
+            const [isAutoPlaying, setIsAutoPlaying] = React.useState(false);
+            // State to store the remaining time of the current song's snippet
+            const [remainingTime, setRemainingTime] = React.useState(0); // Initialize remaining time
+            const [playDuration, setPlayDuration] = React.useState(40); // Default to 40 seconds
+            // State to store the approximate start time for each song snippet (in seconds)
+            const [startOffset, setStartOffset] = React.useState(30); // Default to 30 seconds
+            // State to store the current message displayed to the user (e.g., errors, instructions)
+            const [message, setMessage] = React.useState('');
+            // State to manage the visibility of the "second screen" (played songs list)
+            const [showSecondScreen, setShowSecondScreen] = React.useState(false);
+            // State to hold the new window object for the second screen
+            const [secondScreenWindow, setSecondScreenWindow] = React.useState(null);
+            // State to store the name of the current playlist
+            const [playlistName, setPlaylistName] = React.useState('My Music Bingo Playlist');
+            // State to control the visibility of the bingo card generator section
+            const [showBingoCardGenerator, setShowBingoCardGenerator] = React.useState(false);
+            // State for number of bingo cards to generate
+            const [numBingoCards, setNumBingoCards] = React.useState(1);
+            // State for tickets per page (1 or 2)
+            const [ticketsPerPage, setTicketsPerPage] = React.useState(1);
+            // State for font size on printed cards (in rem)
+            const [cardFontSize, setCardFontSize] = React.useState(0.7); // Default to 0.7rem
+            // State to control the visibility of the playlist editor section
+            const [showPlaylistEditor, setShowPlaylistEditor] = React.useState(false);
+            // State to store all generated bingo cards for checking
+            const [generatedCards, setGeneratedCards] = React.useState([]);
+            // State for the card number to be checked
+            const [cardToCheckNumber, setCardToCheckNumber] = React.useState('');
+            // State for the currently loaded card for checking
+            const [checkedCard, setCheckedCard] = React.useState(null);
+            // State for cells that form a winning pattern on the checked card
+            const [winningCells, setWinningCells] = React.useState(null);
+            // State for the selected bingo pattern to check
+            const [bingoPatternToCheck, setBingoPatternToCheck] = React.useState('single'); // 'single', 'double', 'blackout'
+            // State for the name of the playlist to be saved
+            const [playlistToSaveName, setPlaylistToSaveName] = React.useState('');
+            // State to store loaded saved playlist names
+            const [savedPlaylistNames, setSavedPlaylistNames] = React.useState([]);
+            // State for the selected saved playlist to load
+            const [selectedSavedPlaylist, setSelectedSavedPlaylist] = React.useState('');
+            // State for the search query in played songs history
+            const [playedSongsSearchQuery, setPlayedSongsSearchQuery] = React.useState('');
+
+
+            // Ref for the audio element to control playback
+            const audioRef = React.useRef(null);
+            // Ref for the timer that controls the song snippet duration
+            const playTimerRef = React.useRef(null);
+            // Ref for the interval timer that updates the remaining time display
+            const remainingTimeIntervalRef = React.useRef(null);
+            // Ref to hold the current value of isAutoPlaying, to prevent stale closures in setTimeout
+            const isAutoPlayingRef = React.useRef(isPlaying); // Use isPlayingRef.current for setTimeout
+            // Ref for the print area to dynamically inject content for printing
+            const printAreaRef = React.useRef(null);
+            // Ref for the fade interval
+            const fadeIntervalRef = React.useRef(null);
+
+            // Define fade duration
+            const FADE_DURATION_SECONDS = 3;
+
+            // Function to fade in audio
+            const fadeIn = React.useCallback((audioElement, duration, callback) => {
+                // Clear any existing fade interval
+                if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
+
+                const startVolume = 0;
+                const endVolume = 0.8; // Target volume
+                const steps = 50; // Number of volume steps
+                const stepDuration = duration / steps * 1000; // Time per step in ms
+                let currentStep = 0;
+
+                audioElement.volume = startVolume;
+                audioElement.play().catch(e => console.error("Fade-in play error:", e));
+
+                const intervalId = setInterval(() => {
+                    currentStep++;
+                    const newVolume = startVolume + (endVolume - startVolume) * (currentStep / steps);
+                    if (newVolume >= endVolume) {
+                        audioElement.volume = endVolume;
+                        clearInterval(intervalId);
+                        if (callback) callback();
+                    } else {
+                        audioElement.volume = newVolume;
+                    }
+                }, stepDuration);
+                fadeIntervalRef.current = intervalId; // Store the interval ID
+                return intervalId;
+            }, []);
+
+            // Function to fade out audio
+            const fadeOut = React.useCallback((audioElement, duration, callback) => {
+                // Clear any existing fade interval
+                if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
+
+                const startVolume = audioElement.volume;
+                const endVolume = 0;
+                const steps = 50;
+                const stepDuration = duration / steps * 1000;
+                let currentStep = 0;
+
+                const intervalId = setInterval(() => {
+                    currentStep++;
+                    const newVolume = startVolume - (startVolume - endVolume) * (currentStep / steps);
+                    if (newVolume <= endVolume) {
+                        audioElement.volume = endVolume;
+                        audioElement.pause(); // Pause when volume is 0
+                        clearInterval(intervalId);
+                        if (callback) callback();
+                    } else {
+                        audioElement.volume = newVolume;
+                    }
+                }, stepDuration);
+                fadeIntervalRef.current = intervalId; // Store the interval ID
+                return intervalId;
+            }, []);
+
+
+            // Load saved playlist names from localStorage on component mount
+            React.useEffect(() => {
+                const storedPlaylists = JSON.parse(localStorage.getItem('nsbMusicBingoPlaylists')) || {};
+                setSavedPlaylistNames(Object.keys(storedPlaylists));
+
+                // Load generated cards from localStorage on component mount
+                const storedGeneratedCards = JSON.parse(localStorage.getItem('nsbMusicBingoGeneratedCards')) || [];
+                setGeneratedCards(storedGeneratedCards);
+            }, []);
+
+
+            // Update the ref whenever isAutoPlaying state changes
+            React.useEffect(() => {
+                isAutoPlayingRef.current = isPlaying; // Corrected to isPlaying for autoPlayRef
+            }, [isPlaying]);
+
+            // Effect to save generatedCards to localStorage whenever it changes
+            React.useEffect(() => {
+                localStorage.setItem('nsbMusicBingoGeneratedCards', JSON.stringify(generatedCards));
+            }, [generatedCards]);
+
+
+            // Function to handle file selection from the user
+            const handleFileChange = (event) => {
+                const files = Array.from(event.target.files);
+                // Filter out non-audio files and create URLs for them
+                const newAudioFiles = files.map(file => {
+                    let cleanedName = file.name;
+
+                    // 1. Remove file extension (e.g., .mp3, .wav, .mp4, .avi, etc.)
+                    cleanedName = cleanedName.replace(/\.(mp3|wav|ogg|flac|mp4|mov|avi|wmv|flv|webm)$/i, '');
+
+                    // NEW STEP: Aggressively remove "Artist - " pattern or "Artist - Song Title"
+                    // This regex tries to capture common artist-song separators and remove the artist part.
+                    // It looks for patterns like "Artist - Song", "Artist - (Year) Song", "Artist - [Genre] Song"
+                    // It tries to be smart about not removing parts of the song title itself.
+                    cleanedName = cleanedName.replace(/^(.*?)\s*[-–—]\s*(.*)$/, (match, p1, p2) => {
+                        // If p1 (before the hyphen) looks like an artist name (e.g., contains common artist indicators or is short)
+                        // and p2 (after the hyphen) looks like a song title, then keep only p2.
+                        // This is a heuristic and might not be perfect for all filenames.
+                        const potentialArtist = p1.trim();
+                        const potentialSong = p2.trim();
+
+                        // Simple heuristic: if potentialArtist is short or contains common artist keywords,
+                        // assume it's an artist and remove it.
+                        if (potentialArtist.length < 25 || potentialArtist.toLowerCase().includes('feat') || potentialArtist.toLowerCase().includes('ft')) {
+                            return potentialSong;
+                        }
+                        return match; // Keep original if heuristic doesn't match
+                    });
+
+
+                    // 2. Remove content within parentheses or square brackets (e.g., (Live), [Remix], (feat. Artist))
+                    // This is crucial for removing artist names often found in file names.
+                    cleanedName = cleanedName.replace(/\s*[\(\[].*?[\)\]]\s*/g, ' ');
+
+                    // 3. Remove leading track numbers and common separators (e.g., "01 - ", "1. ", "01_")
+                    cleanedName = cleanedName.replace(/^\s*\d+\s*[-_.]?\s*/, '');
+
+                    // 4. Remove any character that is NOT a letter, number, space, apostrophe, hyphen, or ampersand.
+                    cleanedName = cleanedName.replace(/[^a-zA-Z0-9\s'&-]/g, '');
+
+                    // 5. Replace multiple spaces with a single space and trim leading/trailing whitespace.
+                    cleanedName = cleanedName.replace(/\s\s+/g, ' ').trim();
+
+                    // 6. Remove any remaining leading/trailing hyphens or underscores that might have been left from cleaning
+                    cleanedName = cleanedName.replace(/^[-\s_]+|[-\s_]+$/g, '');
+
+                    // 7. Final trim
+                    cleanedName = cleanedName.trim();
+
+                    // 8. Convert to uppercase for consistent display on bingo cards
+                    cleanedName = cleanedName.toUpperCase();
+
+                    return {
+                        file,
+                        url: URL.createObjectURL(file),
+                        name: cleanedName, // Use the cleaned name (should be just song title)
+                    };
+                });
+                setAudioFiles(prevFiles => [...prevFiles, ...newAudioFiles]);
+                setMessage(`Loaded ${newAudioFiles.length} new songs.`);
+            };
+
+            // Function to pick a random song from the available audio files
+            const pickRandomSong = React.useCallback(() => {
+                // Filter out songs that have already been played
+                const availableSongs = audioFiles.filter(song => !playedSongs.some(ps => ps.name === song.name));
+
+                if (availableSongs.length === 0) {
+                    // If all songs have been played, reset the played songs list
+                    setMessage('All songs have been played! Resetting playlist for a new round.');
+                    setPlayedSongs([]); // Reset played songs
+                    // After resetting, if there are still audio files, pick a new random song from all of them
+                    if (audioFiles.length > 0) {
+                        const randomIndex = Math.floor(Math.random() * audioFiles.length);
+                        return audioFiles[randomIndex];
+                    }
+                    return null; // No songs to play even after reset
+                }
+
+                // Pick a random index from the available songs
+                const randomIndex = Math.floor(Math.random() * availableSongs.length);
+                return availableSongs[randomIndex];
+            }, [audioFiles, playedSongs]);
+
+            // Function to play the next song (can be called manually or automatically)
+            const playNextSong = React.useCallback((autoTriggered = false) => {
+                // Clear any existing timers to prevent multiple simultaneous plays or conflicts
+                clearTimeout(playTimerRef.current);
+                clearInterval(remainingTimeIntervalRef.current);
+                if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current); // Clear any ongoing fade
+
+                const nextSong = pickRandomSong();
+
+                if (nextSong) {
+                    setCurrentSong(nextSong);
+                    setIsPlaying(true);
+                    setRemainingTime(playDuration); // Initialize remaining time for the new song
+
+                    const audio = audioRef.current;
+                    audio.src = nextSong.url;
+
+                    // Event listener for when the audio metadata is loaded
+                    audio.onloadedmetadata = () => {
+                        const maxStartTime = Math.max(0, audio.duration - playDuration);
+                        let actualStartTime = Math.min(
+                            maxStartTime,
+                            Math.max(0, startOffset + (Math.random() * 10 - 5))
+                        );
+
+                        audio.currentTime = actualStartTime;
+                        // Start fade-in
+                        fadeIn(audio, FADE_DURATION_SECONDS);
+
+                        // Set a timer to start fade-out before the song fully ends
+                        playTimerRef.current = setTimeout(() => {
+                            fadeOut(audio, FADE_DURATION_SECONDS, () => {
+                                audio.currentTime = 0;
+                                setIsPlaying(false);
+                                setPlayedSongs(prev => {
+                                    const updatedPlayedSongs = prev.some(s => s.name === nextSong.name) ? prev : [...prev, nextSong];
+                                    return updatedPlayedSongs;
+                                });
+                                setCurrentSong(null);
+                                if (isAutoPlayingRef.current) {
+                                    playNextSong(true);
+                                }
+                            });
+                        }, (playDuration - FADE_DURATION_SECONDS) * 1000); // Trigger fade-out FADE_DURATION_SECONDS before total playDuration
+
+                        // Start updating remaining time every second for display
+                        remainingTimeIntervalRef.current = setInterval(() => {
+                            setRemainingTime(prev => Math.max(0, prev - 1));
+                        }, 1000);
+                    };
+
+                    // Error handling for audio loading/playing
+                    audio.onerror = () => {
+                        setMessage(`Error loading or playing: ${nextSong.name}. Skipping to next song.`);
+                        setIsPlaying(false);
+                        setCurrentSong(null);
+                        clearTimeout(playTimerRef.current);
+                        clearInterval(remainingTimeIntervalRef.current);
+                        if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
+
+                        if (isAutoPlayingRef.current) {
+                            playNextSong(true);
+                        }
+                    };
+                } else {
+                    setIsPlaying(false);
+                    setCurrentSong(null);
+                    setIsAutoPlaying(false);
+                    setMessage('No more songs to play. Auto-play stopped.');
+                }
+            }, [pickRandomSong, playDuration, startOffset, playedSongs, fadeIn, fadeOut, audioFiles]); // Added audioFiles to dependencies
+
+            // Effect to manage the main playback logic and cleanup
+            React.useEffect(() => {
+                const audio = audioRef.current;
+                return () => {
+                    clearTimeout(playTimerRef.current);
+                    clearInterval(remainingTimeIntervalRef.current);
+                    clearInterval(fadeIntervalRef.current); // Clear fade interval on unmount
+                    if (audio) {
+                        audio.onloadedmetadata = null;
+                        audio.onerror = null;
+                        audio.pause(); // Ensure audio is paused
+                        audio.currentTime = 0;
+                        audio.volume = 1; // Reset volume
+                    }
+                };
+            }, []);
+
+            // Function to start automatic playback
+            const startAutoPlay = () => {
+                if (audioFiles.length === 0) {
+                    setMessage('Please load songs before starting auto-play.');
+                    return;
+                }
+                setIsAutoPlaying(true);
+                playNextSong(true);
+            };
+
+            // Function to stop automatic playback
+            const stopAutoPlay = () => {
+                setIsAutoPlaying(false);
+                stopSong();
+                setMessage('Auto-play stopped.');
+            };
+
+            // Function to pause the current song
+            const pauseSong = () => {
+                if (audioRef.current) {
+                    fadeOut(audioRef.current, FADE_DURATION_SECONDS, () => {
+                        audioRef.current.pause();
+                        setIsPlaying(false);
+                        clearTimeout(playTimerRef.current);
+                        clearInterval(remainingTimeIntervalRef.current);
+                    });
+                }
+            };
+
+            // Function to resume the current song
+            const resumeSong = () => {
+                if (audioRef.current && currentSong) {
+                    fadeIn(audioRef.current, FADE_DURATION_SECONDS, () => {
+                        setIsPlaying(true);
+                        playTimerRef.current = setTimeout(() => {
+                            fadeOut(audioRef.current, FADE_DURATION_SECONDS, () => {
+                                audioRef.current.currentTime = 0;
+                                setIsPlaying(false);
+                                setPlayedSongs(prev => {
+                                    const updatedPlayedSongs = prev.some(s => s.name === currentSong.name) ? prev : [...prev, currentSong];
+                                    return updatedPlayedSongs;
+                                });
+                                setCurrentSong(null);
+                                if (isAutoPlayingRef.current) {
+                                    playNextSong(true);
+                                }
+                            });
+                        }, (remainingTime - FADE_DURATION_SECONDS) * 1000); // Adjust timing for resume
+                        remainingTimeIntervalRef.current = setInterval(() => {
+                            setRemainingTime(prev => Math.max(0, prev - 1));
+                        }, 1000);
+                    });
+                }
+            };
+
+            // Function to stop the current song and reset its state
+            const stopSong = () => {
+                if (audioRef.current) {
+                    fadeOut(audioRef.current, FADE_DURATION_SECONDS, () => {
+                        audioRef.current.currentTime = 0;
+                        setIsPlaying(false);
+                        clearTimeout(playTimerRef.current);
+                        clearInterval(remainingTimeIntervalRef.current);
+                        if (currentSong && !playedSongs.some(s => s.name === currentSong.name)) {
+                            setPlayedSongs(prev => [...prev, currentSong]);
+                        }
+                        setCurrentSong(null);
+                        setRemainingTime(0);
+                    });
+                }
+            };
+
+            // Function to clear all loaded songs and reset the app state
+            const resetApp = () => {
+                stopSong();
+                setIsAutoPlaying(false);
+                setAudioFiles([]);
+                setPlayedSongs([]);
+                setCurrentSong(null);
+                setPlaylistName('My Music Bingo Playlist');
+                setMessage('App reset. Load new songs to start.');
+                // Close second screen if open
+                if (secondScreenWindow && !secondScreenWindow.closed) {
+                    secondScreenWindow.close();
+                    setSecondScreenWindow(null);
+                    setShowSecondScreen(false);
+                }
+                setGeneratedCards([]); // Clear generated cards
+                setCheckedCard(null); // Clear checked card
+                setCardToCheckNumber(''); // Clear card number input
+                setWinningCells(null); // Clear winning cells
+                setShowBingoCardGenerator(false);
+                setShowPlaylistEditor(false); // Hide playlist editor on reset
+                setPlaylistToSaveName(''); // Clear save playlist name input
+                setSelectedSavedPlaylist(''); // Clear selected saved playlist
+                localStorage.removeItem('nsbMusicBingoGeneratedCards'); // Clear saved cards from local storage
+                localStorage.removeItem('nsbMusicBingoPlaylists'); // Clear all saved playlists
+                setSavedPlaylistNames([]); // Clear saved playlist names from state
+                setPlayedSongsSearchQuery(''); // Clear search query
+            };
+
+            // Function to open/close the second screen window
+            const toggleSecondScreen = () => {
+                if (secondScreenWindow && !secondScreenWindow.closed) {
+                    // If window is open, close it
+                    secondScreenWindow.close();
+                    setSecondScreenWindow(null);
+                    setShowSecondScreen(false);
+                } else {
+                    // Open a new window
+                    const newWindow = window.open('', 'NSB Games Live Display', 'width=800,height=600,resizable=yes');
+                    if (newWindow) {
+                        newWindow.document.title = "NSB Games - Live Display";
+                        const rootDiv = newWindow.document.createElement('div');
+                        rootDiv.id = 'second-screen-root';
+                        newWindow.document.body.appendChild(rootDiv);
+
+                        // Add Google Fonts link to the new window's head
+                        const link = newWindow.document.createElement('link');
+                        link.href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap";
+                        link.rel = "stylesheet";
+                        newWindow.document.head.appendChild(link);
+
+                        // Store the new window object in state
+                        setSecondScreenWindow(newWindow);
+                        setShowSecondScreen(true);
+
+                        // Handle closing the new window from its own UI or browser controls
+                        newWindow.onbeforeunload = () => {
+                            setSecondScreenWindow(null);
+                            setShowSecondScreen(false);
+                        };
+
+                    } else {
+                        setMessage('Pop-up blocked! Please allow pop-ups for this site to open the second screen.');
+                    }
+                }
+            };
+
+            // Effect to render the SecondScreenDisplay component into the new window using a portal
+            React.useEffect(() => {
+                if (secondScreenWindow && !secondScreenWindow.closed) {
+                    const rootDiv = secondScreenWindow.document.getElementById('second-screen-root');
+                    if (rootDiv) {
+                        // Check if a React root already exists for this div
+                        let root = rootDiv._reactRoot;
+                        if (!root) {
+                            // If not, create a new root
+                            root = ReactDOM.createRoot(rootDiv);
+                            rootDiv._reactRoot = root; // Store the root instance
+                        }
+                        root.render(
+                            <SecondScreenDisplay
+                                currentSongName={currentSong ? currentSong.name : null}
+                                playedSongsList={playedSongs.map(s => s.name)}
+                                isPlayingMain={isPlaying} // Pass isPlaying state to second screen
+                                checkedCard={checkedCard} // Pass checked card for display
+                                winningCells={winningCells} // Pass winning cells for highlighting
+                            />
+                        );
+                    }
+                }
+            }, [secondScreenWindow, currentSong, playedSongs, isPlaying, checkedCard, winningCells]); // Re-render portal when these states change
+
+            // Close second screen if the main app component unmounts or refreshes
+            React.useEffect(() => {
+                const handleBeforeUnload = () => {
+                    if (secondScreenWindow && !secondScreenWindow.closed) {
+                        secondScreenWindow.close();
+                    }
+                };
+
+                window.addEventListener('beforeunload', handleBeforeUnload);
+
+                return () => {
+                    window.removeEventListener('beforeunload', handleBeforeUnload);
+                    if (secondScreenWindow && !secondScreenWindow.closed) {
+                        secondScreenWindow.close();
+                    }
+                };
+            }, [secondScreenWindow]);
+
+            // Function to shuffle an array (Fisher-Yates algorithm)
+            const shuffleArray = (array) => {
+                const shuffled = [...array];
+                for (let i = shuffled.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                }
+                return shuffled;
+            };
+
+            // Function to generate a single bingo card (5x5 grid with 25 unique songs)
+            const generateSingleBingoCard = React.useCallback((songs) => {
+                // We need 25 unique songs for a 5x5 grid.
+                if (songs.length < 25) {
+                    setMessage('You need at least 25 songs loaded to generate a bingo card.');
+                    return null;
+                }
+
+                // Shuffle songs and pick 25 unique ones for the card
+                const shuffledSongs = shuffleArray(songs).slice(0, 25);
+                // Extract just the names for the card layout
+                const finalCardLayout = shuffledSongs.map(song => song.name);
+
+                return finalCardLayout;
+            }, []);
+
+            // NSB Games Black and White SVG Logo (for print)
+            const nsbLogoSvgForPrint = `
+                <svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="15" cy="15" r="12" fill="black"/>
+                </svg>
+            `;
+
+            // Function to generate and print bingo cards
+            const handleGenerateAndPrintCards = () => {
+                if (audioFiles.length < 25) { // Minimum 25 songs required for a 5x5 card
+                    setMessage('Please load at least 25 songs to generate bingo cards.');
+                    return;
+                }
+
+                const newGeneratedCards = []; // Array to store card data
+                let printContent = '';
+                const cardsToGenerate = Math.max(1, parseInt(numBingoCards) || 1);
+                const cardsPerWrapper = ticketsPerPage; // This will be 1 or 2
+
+                let printStyle = '';
+                let pageWrapperStyles = ''; // Styles for the .page-wrapper
+                let bingoCardStyles = ''; // Styles for the .bingo-card-container
+
+                if (ticketsPerPage === 2) {
+                    // Two tickets per page, landscape US Letter (8.5x11 inches)
+                    printStyle = `@page { size: 279.4mm 215.9mm landscape; margin: 0; }`;
+                    pageWrapperStyles = `
+                        width: 279.4mm;
+                        height: 215.9mm;
+                        flex-direction: row;
+                        justify-content: space-around; /* Changed to space-around for even distribution */
+                        align-items: center;
+                        padding: 10mm;
+                        gap: 10mm; /* Gap between two cards */
+                    `;
+                    bingoCardStyles = `
+                        width: 125mm; /* Calculated width for two cards side-by-side with padding and gap */
+                        height: 190mm; /* Adjusted height for two cards */
+                    `;
+                } else {
+                    // One ticket per page, portrait US Letter (8.5x11 inches)
+                    printStyle = `@page { size: 215.9mm 279.4mm portrait; margin: 0; }`;
+                    pageWrapperStyles = `
+                        width: 215.9mm;
+                        height: 279.4mm;
+                        flex-direction: column;
+                        justify-content: center;
+                        align-items: center;
+                        padding: 10mm;
+                        gap: 0;
+                    `;
+                    bingoCardStyles = `
+                        width: 180mm;
+                        height: 250mm;
+                    `;
+                }
+
+                for (let i = 0; i < cardsToGenerate; i += cardsPerWrapper) {
+                    let currentWrapperCardsHtml = '';
+                    for (let j = 0; j < cardsPerWrapper; j++) {
+                        const cardIndex = i + j;
+                        if (cardIndex < cardsToGenerate) {
+                            const cardData = generateSingleBingoCard(audioFiles);
+                            if (!cardData) return;
+
+                            const cardNumber = cardIndex + 1;
+                            newGeneratedCards.push({ cardNumber, songs: cardData });
+
+                            const cardHtml = `
+                                <div class="bingo-card-container" style="
+                                    box-sizing: border-box;
+                                    border: 2px solid #333;
+                                    border-radius: 8px;
+                                    padding: 5mm;
+                                    display: flex;
+                                    flex-direction: column;
+                                    page-break-inside: avoid;
+                                    font-family: 'Inter', sans-serif;
+                                    color: #000;
+                                    background-color: #fff;
+                                    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+                                    ${bingoCardStyles} /* Apply dynamic card styles here */
+                                ">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                                        <div style="width: 30px; height: 30px;">${nsbLogoSvgForPrint}</div>
+                                        <h3 style="font-size: 1.1rem; font-weight: bold; text-align: center; color: #333; flex-grow: 1;">NSB GAMES - ${playlistName}</h3>
+                                        <div style="width: 100px; text-align: right; font-size: 0.65rem; font-weight: bold;">
+                                            CARD # ${cardNumber}
+                                            <br/>
+                                            <a href="https://nsbgames.com/#home" style="color: #555; text-decoration: none;">nsbgames.com</a>
+                                        </div>
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; flex-grow: 1;">
+                                        ${cardData.map((song) => `
+                                            <div style="
+                                                border: 1px solid #ccc;
+                                                display: flex;
+                                                justify-content: center;
+                                                align-items: center;
+                                                text-align: center;
+                                                padding: 4px;
+                                                font-size: ${cardFontSize}rem; /* Apply adjustable font size */
+                                                font-weight: bold;
+                                                background-color: #f8fafc;
+                                                overflow: hidden;
+                                                word-wrap: break-word;
+                                                line-height: 1.2;
+                                            ">
+                                                ${song}
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            `;
+                            currentWrapperCardsHtml += cardHtml;
+                        }
+                    }
+                    printContent += `
+                        <div class="page-wrapper" style="${pageWrapperStyles}">
+                            ${currentWrapperCardsHtml}
+                        </div>
+                    `;
+                }
+
+                setGeneratedCards(newGeneratedCards); // Store the generated card data
+
+                // Prepare the print window/area
+                const printWindow = window.open('', '_blank', 'width=800,height=600');
+                printWindow.document.write(`
+                    <!DOCTYPE html>
+                    <html lang="en">
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <title>${playlistName} - Bingo Cards - NSB Games</title>
+                        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+                        <style>
+                            body {
+                                font-family: 'Inter', sans-serif;
+                                margin: 0;
+                                padding: 0;
+                                background-color: #fff;
+                                display: block;
+                                width: 100vw;
+                                height: 100vh;
+                            }
+                            /* Base styles for page-wrapper and bingo-card-container */
+                            .page-wrapper {
+                                display: flex;
+                                box-sizing: border-box;
+                                page-break-after: always;
+                                ${pageWrapperStyles} /* Apply dynamic page wrapper styles here */
+                            }
+                            .page-wrapper:last-of-type {
+                                page-break-after: auto;
+                            }
+                            .bingo-card-container {
+                                /* These styles are now applied inline in the loop above for dynamic sizing */
+                                /* But keep the print-specific overrides here for general print behavior */
+                                border: 1px solid #000;
+                                border-radius: 8px;
+                                padding: 5mm;
+                                box-sizing: border-box;
+                                page-break-inside: avoid;
+                                box-shadow: none;
+                                margin: 0;
+                                flex-shrink: 0;
+                                display: flex;
+                                flex-direction: column;
+                                color: #000;
+                                background-color: #fff;
+                            }
+                            /* Ensure SVG text is black for print */
+                            .nsb-print-text { fill: black !important; }
+                            .nsb-print-dot { fill: black !important; }
+
+                            /* Dynamic @page rule */
+                            ${printStyle}
+                        </style>
+                    </head>
+                    <body>
+                        ${printContent}
+                    </body>
+                    </html>
+                `);
+                printWindow.document.close();
+                printWindow.focus();
+                printWindow.print();
+                setMessage(`Generated ${cardsToGenerate} bingo cards. Please use your browser's print dialog.`);
+            };
+
+            // Function to check for a single bingo line (row, column, or diagonal)
+            const checkSingleBingo = (cardSongs, playedSongs) => {
+                const playedSongNames = new Set(playedSongs.map(s => s.name));
+                const winningLines = [
+                    // Rows
+                    [0, 1, 2, 3, 4], [5, 6, 7, 8, 9], [10, 11, 12, 13, 14], [15, 16, 17, 18, 19], [20, 21, 22, 23, 24],
+                    // Columns
+                    [0, 5, 10, 15, 20], [1, 6, 11, 16, 21], [2, 7, 12, 17, 22], [3, 8, 13, 18, 23], [4, 9, 14, 19, 24],
+                    // Diagonals
+                    [0, 6, 12, 18, 24], [4, 8, 12, 16, 20]
+                ];
+
+                for (const line of winningLines) {
+                    const isBingo = line.every(index => playedSongNames.has(cardSongs[index]));
+                    if (isBingo) {
+                        return line; // Return the indices of the winning line
+                    }
+                }
+                return null; // No single bingo found
+            };
+
+            // Function to check for a double bingo (two distinct lines)
+            const checkDoubleBingo = (cardSongs, playedSongs) => {
+                const playedSongNames = new Set(playedSongs.map(s => s.name));
+                const winningLines = [
+                    // Rows
+                    [0, 1, 2, 3, 4], [5, 6, 7, 8, 9], [10, 11, 12, 13, 14], [15, 16, 17, 18, 19], [20, 21, 22, 23, 24],
+                    // Columns
+                    [0, 5, 10, 15, 20], [1, 6, 11, 16, 21], [2, 7, 12, 17, 22], [3, 8, 13, 18, 23], [4, 9, 14, 19, 24],
+                    // Diagonals
+                    [0, 6, 12, 18, 24], [4, 8, 12, 16, 20]
+                ];
+
+                const foundLines = [];
+                for (const line of winningLines) {
+                    const isBingo = line.every(index => playedSongNames.has(cardSongs[index]));
+                    if (isBingo) {
+                        foundLines.push(line);
+                    }
+                }
+
+                if (foundLines.length >= 2) {
+                    // Combine the indices of the first two found lines
+                    const combinedIndices = [...new Set([...foundLines[0], ...foundLines[1]])];
+                    return combinedIndices;
+                }
+                return null; // No double bingo found
+            };
+
+            // Function to check for a blackout bingo (all 25 songs)
+            const checkBlackoutBingo = (cardSongs, playedSongs) => {
+                const playedSongNames = new Set(playedSongs.map(s => s.name));
+                const isBlackout = cardSongs.every(song => playedSongNames.has(song));
+                if (isBlackout) {
+                    return Array.from({ length: 25 }, (_, i) => i); // Return all indices
+                }
+                return null; // No blackout bingo found
+            };
+
+
+            // Function to handle editing a song name in the playlist editor
+            const handleEditSongName = (index, newName) => {
+                setAudioFiles(prevFiles =>
+                    prevFiles.map((song, i) =>
+                        i === index ? { ...song, name: newName.toUpperCase().trim() } : song
+                    )
+                );
+            };
+
+            // Function to handle removing a song from the playlist editor
+            const handleRemoveSong = (indexToRemove) => {
+                setAudioFiles(prevFiles => prevFiles.filter((_, i) => i !== indexToRemove));
+                setMessage(`Removed a song from the playlist.`);
+            };
+
+            // Function to load a bingo card for checking
+            const handleLoadCardForChecking = () => {
+                // Stop the currently playing song when checking a card
+                stopSong();
+
+                const cardNum = parseInt(cardToCheckNumber);
+                if (isNaN(cardNum) || cardNum <= 0) {
+                    setMessage('Please enter a valid card number.');
+                    setCheckedCard(null);
+                    setWinningCells(null);
+                    return;
+                }
+
+                const foundCard = generatedCards.find(card => card.cardNumber === cardNum);
+                if (foundCard) {
+                    setCheckedCard(foundCard);
+                    let cellsToHighlight = null;
+                    let bingoMessage = `Card #${cardNum} loaded for checking.`;
+
+                    if (bingoPatternToCheck === 'single') {
+                        cellsToHighlight = checkSingleBingo(foundCard.songs, playedSongs);
+                        if (cellsToHighlight) {
+                            bingoMessage = `Card #${cardNum} has a SINGLE BINGO!`;
+                        } else {
+                            bingoMessage = `Card #${cardNum} does NOT have a Single Bingo yet.`;
+                        }
+                    } else if (bingoPatternToCheck === 'double') {
+                        cellsToHighlight = checkDoubleBingo(foundCard.songs, playedSongs);
+                        if (cellsToHighlight) {
+                            bingoMessage = `Card #${cardNum} has a DOUBLE BINGO!`;
+                        } else {
+                            bingoMessage = `Card #${cardNum} does NOT have a Double Bingo yet.`;
+                        }
+                    } else if (bingoPatternToCheck === 'blackout') {
+                        cellsToHighlight = checkBlackoutBingo(foundCard.songs, playedSongs);
+                        if (cellsToHighlight) {
+                            bingoMessage = `Card #${cardNum} has a BLACKOUT BINGO!`;
+                        } else {
+                            bingoMessage = `Card #${cardNum} does NOT have a Blackout Bingo yet.`;
+                        }
+                    }
+                    setWinningCells(cellsToHighlight);
+                    setMessage(bingoMessage);
+
+                } else {
+                    setMessage(`Card #${cardNum} not found. Generate cards first.`);
+                    setCheckedCard(null);
+                    setWinningCells(null);
+                }
+            };
+
+            // Function to reset the checked card display
+            const handleResetCheckedCard = () => {
+                setCheckedCard(null);
+                setCardToCheckNumber('');
+                setWinningCells(null);
+                setMessage('Checked card display reset.');
+            };
+
+            // Function to save the current playlist to local storage
+            const handleSavePlaylist = () => {
+                if (!playlistToSaveName.trim()) {
+                    setMessage('Please enter a name for the playlist to save.');
+                    return;
+                }
+                if (audioFiles.length === 0) {
+                    setMessage('Load songs into the playlist before saving.');
+                    return;
+                }
+
+                const storedPlaylists = JSON.parse(localStorage.getItem('nsbMusicBingoPlaylists')) || {};
+                storedPlaylists[playlistToSaveName.trim()] = audioFiles.map(song => song.name);
+                localStorage.setItem('nsbMusicBingoPlaylists', JSON.stringify(storedPlaylists));
+                setSavedPlaylistNames(Object.keys(storedPlaylists)); // Update list of saved playlist names
+                setMessage(`Playlist "${playlistToSaveName.trim()}" saved!`);
+                setPlaylistToSaveName(''); // Clear input after saving
+            };
+
+            // Function to load a saved playlist from local storage
+            const handleLoadPlaylist = () => {
+                if (!selectedSavedPlaylist) {
+                    setMessage('Please select a playlist to load.');
+                    return;
+                }
+                const storedPlaylists = JSON.parse(localStorage.getItem('nsbMusicBingoPlaylists')) || {};
+                const loadedSongNames = storedPlaylists[selectedSavedPlaylist];
+
+                if (loadedSongNames) {
+                    // Clear current playlist and load only names. User will need to re-add files.
+                    setAudioFiles(loadedSongNames.map(name => ({ file: null, url: null, name })));
+                    setPlayedSongs([]); // Reset played songs for new playlist
+                    setCurrentSong(null); // Clear current song
+                    setPlaylistName(selectedSavedPlaylist); // Set playlist name to loaded name
+                    setMessage(`Playlist "${selectedSavedPlaylist}" loaded. Please re-load audio files to play.`);
+                    setIsAutoPlaying(false); // Stop auto-play if active
+                } else {
+                    setMessage(`Playlist "${selectedSavedPlaylist}" not found.`);
+                }
+            };
+
+            // Function to delete a saved playlist from local storage
+            const handleDeleteSavedPlaylist = () => {
+                if (!selectedSavedPlaylist) {
+                    setMessage('Please select a playlist to delete.');
+                    return;
+                }
+                const storedPlaylists = JSON.parse(localStorage.getItem('nsbMusicBingoPlaylists')) || {};
+                delete storedPlaylists[selectedSavedPlaylist];
+                localStorage.setItem('nsbMusicBingoPlaylists', JSON.stringify(storedPlaylists));
+                setSavedPlaylistNames(Object.keys(storedPlaylists));
+                setSelectedSavedPlaylist(''); // Clear selection
+                setMessage(`Playlist "${selectedSavedPlaylist}" deleted.`);
+            };
+
+            // Filtered played songs based on search query
+            const filteredPlayedSongs = playedSongs.filter(song =>
+                song.name.toLowerCase().includes(playedSongsSearchQuery.toLowerCase())
+            );
+
+
+            return (
+                <div className="min-h-screen bg-gray-900 text-gray-100 font-inter flex flex-col items-center p-4 sm:p-6 lg:p-8">
+                    {/* NSB Games Branding Header */}
+                    <header className="w-full max-w-4xl text-center mb-8">
+                        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold mb-2 flex items-center justify-center">
+                            <span className="bg-gradient-to-r from-blue-400 to-purple-500 text-transparent bg-clip-text uppercase mr-2">NSB GAMES</span>
+                            <NsbLogoGraphic className="h-8 w-8 sm:h-10 sm:w-10 lg:h-12 lg:w-12" /> {/* Graphical logo */}
+                            <span className="bg-gradient-to-r from-blue-400 to-purple-500 text-transparent bg-clip-text ml-2">MUSIC BINGO</span>
+                        </h1>
+                        <p className="text-lg sm:text-xl text-gray-400">Your ultimate music bingo experience!</p>
+                        <a href="https://nsbgames.com/#home" target="_blank" rel="noopener noreferrer" className="text-blue-300 hover:text-blue-200 text-sm sm:text-base mt-1 inline-block">
+                            https://nsbgames.com/#home
+                        </a>
+                    </header>
+
+                    {/* Main Content Area */}
+                    <main className="w-full max-w-4xl bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl flex flex-col gap-6">
+
+                        {/* Playlist Name Input */}
+                        <section className="bg-gray-700 p-5 rounded-lg shadow-inner">
+                            <h2 className="text-2xl font-semibold text-blue-300 mb-4">Current Playlist Name</h2>
+                            <input
+                                type="text"
+                                value={playlistName}
+                                onChange={(e) => setPlaylistName(e.target.value)}
+                                placeholder="Enter current playlist name"
+                                className="w-full p-3 rounded-lg bg-gray-900 text-white border border-gray-600 focus:ring-blue-500 focus:border-blue-500"
+                            />
+                        </section>
+
+                        {/* File Input Section */}
+                        <section className="bg-gray-700 p-5 rounded-lg shadow-inner">
+                            <h2 className="text-2xl font-semibold text-blue-300 mb-4">Load Your Music Files</h2>
+                            <input
+                                type="file"
+                                multiple
+                                accept="audio/*,video/*" /* Updated to accept video files */
+                                onChange={handleFileChange}
+                                className="block w-full text-sm text-gray-300
+                                        file:mr-4 file:py-2 file:px-4
+                                        file:rounded-full file:border-0
+                                        file:text-sm file:font-semibold
+                                        file:bg-blue-500 file:text-white
+                                        hover:file:bg-blue-600 cursor-pointer"
+                            />
+                            {audioFiles.length > 0 && (
+                                <p className="mt-3 text-gray-400">
+                                    Loaded <span className="font-bold text-blue-200">{audioFiles.length}</span> songs.
+                                </p>
+                            )}
+                            <p className="text-sm text-gray-400 mt-2">
+                                **Important**: You must re-load your audio files each time you open the app.
+                            </p>
+                        </section>
+
+                        {/* Playlist Management Section */}
+                        <section className="bg-gray-700 p-5 rounded-lg shadow-inner">
+                            <h2 className="text-2xl font-semibold text-blue-300 mb-4">Playlist Management</h2>
+                            <div className="flex flex-col space-y-4">
+                                {/* Save Playlist */}
+                                <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+                                    <input
+                                        type="text"
+                                        placeholder="Name to save playlist as"
+                                        value={playlistToSaveName}
+                                        onChange={(e) => setPlaylistToSaveName(e.target.value)}
+                                        className="flex-grow p-3 rounded-lg bg-gray-900 text-white border border-gray-600"
+                                    />
+                                    <button
+                                        onClick={handleSavePlaylist}
+                                        disabled={audioFiles.length === 0 || !playlistToSaveName.trim()}
+                                        className="px-6 py-3 bg-green-600 text-white font-bold rounded-full shadow-lg
+                                                hover:bg-green-700 transition duration-300 ease-in-out
+                                                disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Save Current Playlist
+                                    </button>
+                                </div>
+
+                                {/* Load/Delete Playlist */}
+                                {savedPlaylistNames.length > 0 && (
+                                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+                                        <select
+                                            value={selectedSavedPlaylist}
+                                            onChange={(e) => setSelectedSavedPlaylist(e.target.value)}
+                                            className="flex-grow p-3 rounded-lg bg-gray-900 text-white border border-gray-600 focus:ring-blue-500 focus:border-blue-500"
+                                        >
+                                            <option value="">Select a saved playlist</option>
+                                            {savedPlaylistNames.map(name => (
+                                                <option key={name} value={name}>{name}</option>
+                                            ))}
+                                        </select>
+                                        <button
+                                            onClick={handleLoadPlaylist}
+                                            disabled={!selectedSavedPlaylist}
+                                            className="px-6 py-3 bg-blue-600 text-white font-bold rounded-full shadow-lg
+                                                     hover:bg-blue-700 transition duration-300 ease-in-out
+                                                     disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            Load Selected Playlist
+                                        </button>
+                                        <button
+                                            onClick={handleDeleteSavedPlaylist}
+                                            disabled={!selectedSavedPlaylist}
+                                            className="px-6 py-3 bg-red-600 text-white font-bold rounded-full shadow-lg
+                                                     hover:bg-red-700 transition duration-300 ease-in-out
+                                                     disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            Delete Selected Playlist
+                                        </button>
+                                    </div>
+                                )}
+                                {savedPlaylistNames.length === 0 && (
+                                    <p className="text-gray-400 text-center">No saved playlists found.</p>
+                                )}
+                            </div>
+                        </section>
+
+                        {/* Playback Controls and Current Song Display */}
+                        <section className="bg-gray-700 p-5 rounded-lg shadow-inner">
+                            <h2 className="text-2xl font-semibold text-blue-300 mb-4">Now Playing</h2>
+                            <div className="flex flex-col items-center justify-center space-y-4">
+                                {currentSong ? (
+                                    <>
+                                        <p className="text-3xl sm:text-4xl font-bold text-green-400 text-center">
+                                            {currentSong.name}
+                                        </p>
+                                        <p className="text-xl text-gray-300">
+                                            Time Remaining: <span className="font-mono text-green-300">{remainingTime}s</span>
+                                        </p>
+                                    </>
+                                ) : (
+                                    <p className="text-xl text-gray-400">No song currently playing.</p>
+                                )}
+                                <audio ref={audioRef} className="hidden" controls></audio> {/* Hidden audio element */}
+
+                                <div className="flex flex-wrap justify-center gap-4 mt-4">
+                                    {/* Auto Play Buttons */}
+                                    <button
+                                        onClick={startAutoPlay}
+                                        disabled={audioFiles.length === 0 || isAutoPlaying}
+                                        className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-full shadow-lg
+                                                hover:bg-indigo-700 transition duration-300 ease-in-out
+                                                disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Start Auto Play
+                                    </button>
+                                    <button
+                                        onClick={stopAutoPlay}
+                                        disabled={!isAutoPlaying}
+                                        className="px-6 py-3 bg-orange-600 text-white font-bold rounded-full shadow-lg
+                                                hover:bg-orange-700 transition duration-300 ease-in-out
+                                                disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Stop Auto Play
+                                    </button>
+
+                                    {/* Manual Play and Pause/Resume/Stop Buttons */}
+                                    <button
+                                        onClick={() => playNextSong(false)} // Pass false to indicate manual play
+                                        disabled={audioFiles.length === 0 || isPlaying || isAutoPlaying}
+                                        className="px-6 py-3 bg-blue-600 text-white font-bold rounded-full shadow-lg
+                                                hover:bg-blue-700 transition duration-300 ease-in-out
+                                                disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Play Next Song (Manual)
+                                    </button>
+                                    {isPlaying ? (
+                                        <button
+                                            onClick={pauseSong}
+                                            className="px-6 py-3 bg-yellow-600 text-white font-bold rounded-full shadow-lg
+                                                     hover:bg-yellow-700 transition duration-300 ease-in-out"
+                                        >
+                                            Pause
+                                        </button>
+                                    ) : (
+                                        currentSong && (
+                                            <button
+                                                onClick={resumeSong}
+                                                className="px-6 py-3 bg-green-600 text-white font-bold rounded-full shadow-lg
+                                                             hover:bg-green-700 transition duration-300 ease-in-out"
+                                            >
+                                                Resume
+                                            </button>
+                                        )
+                                    )}
+                                    <button
+                                        onClick={stopSong}
+                                        disabled={!isPlaying && !currentSong}
+                                        className="px-6 py-3 bg-red-600 text-white font-bold rounded-full shadow-lg
+                                                hover:bg-red-700 transition duration-300 ease-in-out
+                                                disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Stop Current Song
+                                    </button>
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* Playlist Review/Edit Section */}
+                        <section className="bg-gray-700 p-5 rounded-lg shadow-inner">
+                            <h2 className="text-2xl font-semibold text-blue-300 mb-4 flex justify-between items-center">
+                                Review/Edit Playlist
+                                <button
+                                    onClick={() => setShowPlaylistEditor(!showPlaylistEditor)}
+                                    className="px-4 py-2 bg-gray-600 text-white text-sm font-bold rounded-full hover:bg-gray-700 transition duration-300"
+                                >
+                                    {showPlaylistEditor ? 'Hide' : 'Show'}
+                                </button>
+                            </h2>
+                            {showPlaylistEditor && (
+                                <div className="mt-4 max-h-80 overflow-y-auto pr-2">
+                                    {audioFiles.length > 0 ? (
+                                        <ul className="space-y-3">
+                                            {audioFiles.map((song, index) => (
+                                                <li key={index} className="flex items-center space-x-2 bg-gray-800 p-3 rounded-lg shadow-sm">
+                                                    <input
+                                                        type="text"
+                                                        value={song.name}
+                                                        onChange={(e) => handleEditSongName(index, e.target.value)}
+                                                        onBlur={(e) => handleEditSongName(index, e.target.value)} // Update on blur
+                                                        className="flex-grow p-2 rounded-md bg-gray-900 text-white border border-gray-600 focus:ring-blue-500 focus:border-blue-500"
+                                                    />
+                                                    <button
+                                                        onClick={() => handleRemoveSong(index)}
+                                                        className="px-3 py-2 bg-red-600 text-white text-sm font-bold rounded-full hover:bg-red-700 transition duration-300"
+                                                    >
+                                                        Remove
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <p className="text-gray-400">No songs loaded to review.</p>
+                                    )}
+                                </div>
+                            )}
+                        </section>
+
+                        {/* Playback Settings */}
+                        <section className="bg-gray-700 p-5 rounded-lg shadow-inner">
+                            <h2 className="text-2xl font-semibold text-blue-300 mb-4">Playback Settings</h2>
+                            <div className="flex flex-col sm:flex-row sm:space-x-8 space-y-4 sm:space-y-0">
+                                <div className="flex-1">
+                                    <label htmlFor="playDuration" className="block text-gray-300 text-lg font-medium mb-2">
+                                        Play Duration (seconds):
+                                    </label>
+                                    <input
+                                        type="number"
+                                        id="playDuration"
+                                        value={playDuration}
+                                        onChange={(e) => setPlayDuration(Math.max(FADE_DURATION_SECONDS + 5, Math.min(60, parseInt(e.target.value) || 0)))}
+                                        className="w-full p-3 rounded-lg bg-gray-900 text-white border border-gray-600 focus:ring-blue-500 focus:border-blue-500"
+                                        min={FADE_DURATION_SECONDS + 5}
+                                        max="60"
+                                    />
+                                    <p className="text-sm text-gray-400 mt-1">Sets how long each song snippet plays (min {FADE_DURATION_SECONDS + 5}s).</p>
+                                </div>
+                                <div className="flex-1">
+                                    <label htmlFor="startOffset" className="block text-gray-300 text-lg font-medium mb-2">
+                                        Start Offset (seconds):
+                                    </label>
+                                    <input
+                                        type="number"
+                                        id="startOffset"
+                                        value={startOffset}
+                                        onChange={(e) => setStartOffset(Math.max(0, Math.min(120, parseInt(e.target.value) || 0)))}
+                                        className="w-full p-3 rounded-lg bg-gray-900 text-white border border-gray-600 focus:ring-blue-500 focus:border-blue-500"
+                                        min="0"
+                                        max="120"
+                                    />
+                                    <p className="text-sm text-gray-400 mt-1">Approximate time into the song to start playback (e.g., 30 seconds).</p>
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* Bingo Card Generation Section */}
+                        <section className="bg-gray-700 p-5 rounded-lg shadow-inner">
+                            <h2 className="text-2xl font-semibold text-blue-300 mb-4 flex justify-between items-center">
+                                Generate Bingo Cards
+                                <button
+                                    onClick={() => setShowBingoCardGenerator(!showBingoCardGenerator)}
+                                    className="px-4 py-2 bg-gray-600 text-white text-sm font-bold rounded-full hover:bg-gray-700 transition duration-300"
+                                >
+                                    {showBingoCardGenerator ? 'Hide' : 'Show'}
+                                </button>
+                            </h2>
+                            {showBingoCardGenerator && (
+                                <div className="mt-4 space-y-4">
+                                    <div className="flex flex-col sm:flex-row sm:space-x-4 space-y-4 sm:space-y-0">
+                                        <div className="flex-1">
+                                            <label htmlFor="numCards" className="block text-gray-300 text-lg font-medium mb-2">
+                                                Number of Cards:
+                                            </label>
+                                            <input
+                                                type="text" /* Changed to text to allow direct typing */
+                                                id="numCards"
+                                                value={numBingoCards}
+                                                onChange={(e) => {
+                                                    const val = parseInt(e.target.value, 10);
+                                                    setNumBingoCards(isNaN(val) ? '' : Math.max(1, val)); // Allow empty string for typing, but enforce min 1
+                                                }}
+                                                className="w-full p-3 rounded-lg bg-gray-900 text-white border border-gray-600 focus:ring-blue-500 focus:border-blue-500"
+                                                min="1"
+                                            />
+                                            <p className="text-sm text-gray-400 mt-1">How many unique bingo cards to generate.</p>
+                                        </div>
+                                        <div className="flex-1">
+                                            <label htmlFor="ticketsPerPage" className="block text-gray-300 text-lg font-medium mb-2">
+                                                Tickets per Page:
+                                            </label>
+                                            <select
+                                                id="ticketsPerPage"
+                                                value={ticketsPerPage}
+                                                onChange={(e) => setTicketsPerPage(parseInt(e.target.value))}
+                                                className="w-full p-3 rounded-lg bg-gray-900 text-white border border-gray-600 focus:ring-blue-500 focus:border-blue-500"
+                                            >
+                                                <option value={1}>1 Ticket per Page</option>
+                                                <option value={2}>2 Tickets per Page</option>
+                                            </select>
+                                            <p className="text-sm text-gray-400 mt-1">Choose layout for printing on standard paper.</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex-1">
+                                        <label htmlFor="cardFontSize" className="block text-gray-300 text-lg font-medium mb-2">
+                                            Card Font Size (rem):
+                                        </label>
+                                        <input
+                                            type="number"
+                                            id="cardFontSize"
+                                            value={cardFontSize}
+                                            onChange={(e) => setCardFontSize(Math.max(0.5, Math.min(2.5, parseFloat(e.target.value) || 0.7)))}
+                                            step="0.1"
+                                            min="0.5"
+                                            max="2.5"
+                                            className="w-full p-3 rounded-lg bg-gray-900 text-white border border-gray-600 focus:ring-blue-500 focus:border-blue-500"
+                                        />
+                                        <p className="text-sm text-gray-400 mt-1">Adjust font size of song titles on printed cards (e.g., 0.7 to 2.5).</p>
+                                    </div>
+                                    <button
+                                        onClick={handleGenerateAndPrintCards}
+                                        disabled={audioFiles.length < 25} // Changed minimum to 25 songs
+                                        className="w-full px-6 py-3 bg-green-600 text-white font-bold rounded-full shadow-lg
+                                                hover:bg-green-700 transition duration-300 ease-in-out
+                                                disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Generate & Print Cards
+                                    </button>
+                                    {audioFiles.length < 25 && ( // Changed minimum to 25 songs
+                                        <p className="text-red-300 text-sm text-center mt-2">
+                                            (Minimum 25 songs required to generate cards)
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+                        </section>
+
+                        {/* Ticket Checker Section */}
+                        <section className="bg-gray-700 p-5 rounded-lg shadow-inner">
+                            <h2 className="text-2xl font-semibold text-blue-300 mb-4">Check Bingo Ticket</h2>
+                            <div className="flex flex-col space-y-4">
+                                <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2 w-full">
+                                    <input
+                                        type="number"
+                                        placeholder="Enter Card #"
+                                        value={cardToCheckNumber}
+                                        onChange={(e) => setCardToCheckNumber(e.target.value)}
+                                        className="flex-grow p-3 rounded-lg bg-gray-900 text-white border border-gray-600 focus:ring-blue-500 focus:border-blue-500"
+                                        min="1"
+                                    />
+                                    <select
+                                        value={bingoPatternToCheck}
+                                        onChange={(e) => setBingoPatternToCheck(e.target.value)}
+                                        className="flex-grow p-3 rounded-lg bg-gray-900 text-white border border-gray-600 focus:ring-blue-500 focus:border-blue-500"
+                                    >
+                                        <option value="single">Single Bingo</option>
+                                        <option value="double">Double Bingo</option>
+                                        <option value="blackout">Blackout Bingo</option>
+                                    </select>
+                                    <button
+                                        onClick={handleLoadCardForChecking}
+                                        disabled={generatedCards.length === 0}
+                                        className="px-6 py-3 bg-blue-600 text-white font-bold rounded-full shadow-lg
+                                                hover:bg-blue-700 transition duration-300 ease-in-out
+                                                disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Load & Check Card
+                                    </button>
+                                    <button
+                                        onClick={handleResetCheckedCard}
+                                        disabled={!checkedCard}
+                                        className="px-6 py-3 bg-gray-600 text-white font-bold rounded-full shadow-lg
+                                                hover:bg-gray-700 transition duration-300 ease-in-out
+                                                disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Reset Card Display
+                                    </button>
+                                </div>
+
+                                {checkedCard && (
+                                    <div className="bg-gray-800 p-4 rounded-lg shadow-md mt-4">
+                                        <h3 className="text-xl font-bold text-blue-300 mb-3 text-center">
+                                            Checking Card # {checkedCard.cardNumber}
+                                        </h3>
+                                        <div className="grid grid-cols-5 gap-1">
+                                            {checkedCard.songs.map((song, index) => (
+                                                <div
+                                                    key={index}
+                                                    className={`flex items-center justify-center text-center p-2 rounded-md transition-colors duration-200
+                                                              ${winningCells && winningCells.includes(index) ? 'bg-green-600 text-white' : (playedSongs.some(ps => ps.name === song) ? 'bg-gray-700 text-gray-200' : 'bg-gray-900 text-gray-400')}`}
+                                                    style={{ minHeight: '60px', fontSize: '0.75rem', fontWeight: 'bold', wordBreak: 'break-word' }}
+                                                >
+                                                    {song}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </section>
+
+                        {/* Second Screen and Reset Options */}
+                        <section className="bg-gray-700 p-5 rounded-lg shadow-inner">
+                            <h2 className="text-2xl font-semibold text-blue-300 mb-4">App Options</h2>
+                            <div className="flex flex-wrap justify-center gap-4">
+                                <button
+                                    onClick={toggleSecondScreen}
+                                    className="px-6 py-3 bg-purple-600 text-white font-bold rounded-full shadow-lg
+                                                hover:bg-purple-700 transition duration-300 ease-in-out"
+                                >
+                                    {showSecondScreen ? 'Close Second Screen' : 'Open Second Screen (Live Display)'}
+                                </button>
+                                <button
+                                    onClick={resetApp}
+                                    className="px-6 py-3 bg-gray-600 text-white font-bold rounded-full shadow-lg
+                                                hover:bg-gray-700 transition duration-300 ease-in-out"
+                                >
+                                    Reset App
+                                </button>
+                            </div>
+                        </section>
+
+                        {/* Message Display */}
+                        {message && (
+                            <div className="bg-blue-900 text-blue-200 p-4 rounded-lg text-center shadow-md">
+                                <p>{message}</p>
+                            </div>
+                        )}
+
+                        {/* Played Songs List (Main Screen) */}
+                        <section className="bg-gray-700 p-5 rounded-lg shadow-inner">
+                            <h2 className="text-2xl font-semibold text-blue-300 mb-4">Played Songs History</h2>
+                            <input
+                                type="text"
+                                placeholder="Search played songs..."
+                                value={playedSongsSearchQuery}
+                                onChange={(e) => setPlayedSongsSearchQuery(e.target.value)}
+                                className="w-full p-3 rounded-lg bg-gray-900 text-white border border-gray-600 focus:ring-blue-500 focus:border-blue-500 mb-4"
+                            />
+                            <div className="max-h-60 overflow-y-auto pr-2">
+                                {filteredPlayedSongs.length > 0 ? (
+                                    <ul className="space-y-2">
+                                        {filteredPlayedSongs.map((song, index) => (
+                                            <li key={index} className="bg-gray-800 p-3 rounded-lg shadow-sm text-gray-200 text-lg">
+                                                {song.name}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <p className="text-gray-400">
+                                        {playedSongsSearchQuery ? 'No matching songs found.' : 'No songs have been played yet.'}
+                                    </p>
+                                )}
+                            </div>
+                        </section>
+                    </main>
+
+                    {/* Hidden div for printing bingo cards */}
+                    <div ref={printAreaRef} style={{ display: 'none' }}></div>
+
+                    {/* Footer Branding */}
+                    <footer className="w-full max-w-4xl text-center mt-8 text-gray-500 text-sm">
+                        <p>&copy; {new Date().getFullYear()} NSB Games. All rights reserved.</p>
+                    </footer>
+                </div>
+            );
+        }
+
+        // Use createRoot for main app rendering
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
